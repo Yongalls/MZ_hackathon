@@ -1,0 +1,2 @@
+from .modeling_bert_clf import BertForClassification
+from .modeling_albert_clf import AlbertForClassification
