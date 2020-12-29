@@ -46,14 +46,14 @@ class Processor(object):
 
     def get_examples(self, mode):
         examples = []
-        file_name = "train.txt" if mode == 'train' else "dev.txt"
+        file_name = mode + '.txt'
 
         with open(os.path.join(root, file_name), 'r', encoding='utf-8') as f:
             i = 0
             for line in f.readlines():
                 # ex_id = "%s-%s" % (mode, i)
-                if i > 10000:
-                    break
+                # if i > 10000:
+                #     break
                 if len(line.strip().split('\t')) != 2:
                     print(i, line.strip(), len(line.strip().split('\t')))
                     continue

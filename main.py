@@ -31,10 +31,11 @@ device = torch.device('cuda')
 gradient_accumulation_steps = 1
 max_grad_norm = 1.0
 
-num_train_epochs = 2
+num_train_epochs = 10
 batchsize = 24
 logging_steps = 100
-evaluate_during_training = False #True
+validation_steps = 700
+evaluate_during_training = True
 weight_decay = 0
 learning_rate = 1e-5
 adam_epsilon = 1e-8
@@ -56,7 +57,7 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 
-def train(train_dataset, model, tokenizer):
+def train(train_dataset, val_dataset, model, tokenizer):
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
 
@@ -79,7 +80,6 @@ def train(train_dataset, model, tokenizer):
     tr_loss, logging_loss = 0.0, 0.0
     global_step = 0
     model.zero_grad()
-    best_f1, best_exact = -1, -1
 
     for epoch in range(num_train_epochs):
         losses = AverageMeter()
@@ -137,22 +137,44 @@ def train(train_dataset, model, tokenizer):
                 if logging_steps > 0 and global_step % logging_steps == 0:
                     print("Traininng epoch {}, step {}, loss ({}/{}), accuracy ({}/{})". format(epoch, global_step, losses.val, losses.avg, accs.val, accs.avg))
                     # Only evaluate when single GPU otherwise metrics may not average well
-                    if evaluate_during_training:
-                        logger.info("Validation start for epoch {}".format(epoch))
-                        result = evaluate(args, model, tokenizer, prefix=epoch)
-                        _f1, _exact = result["f1"], result["exact"]
-                        is_best = _f1 > best_f1
-                        best_f1 = max(_f1, best_f1)
-
-                        current_loss = (tr_loss - logging_loss) / logging_steps
-                        logging_loss = tr_loss
-
-                        logger.info(
-                            "best_f1_val = {}, f1_val = {}, exact_val = {}, loss = {}, global_step = {}, " \
-                            .format(best_f1, _f1, _exact, current_loss, global_step))
+                if evaluate_during_training and validation_steps > 0 and global_step % validation_steps == 0:
+                    result = validate(val_dataset, model, tokenizer)
+                    print("Validation epoch {}, step {}, accuracy {}".format(epoch, global_step, result))
 
 
     return global_step, losses.avg
+
+
+def validate(val_dataset, model, tokenizer):
+    val_sampler = SequentialSampler(val_dataset)
+    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=batchsize)
+
+    accs = AverageMeter()
+
+    for step, batch in enumerate(val_dataloader):
+
+        model.eval()
+        batch = tuple(t.to(device) for t in batch)
+
+        with torch.no_grad():
+            inputs = {
+                "input_ids": batch[0],
+                "attention_mask": batch[1],
+                "token_type_ids": batch[2]
+            }
+            labels = batch[3]
+
+            output = model(**inputs)
+            bs = output.size(0)
+
+            pred_numpy = output.data.cpu().numpy()
+            pred_numpy = np.argmax(pred_numpy, axis=1)
+            label_numpy = labels.data.cpu().numpy()
+            acc = np.sum(pred_numpy == label_numpy) / bs
+
+        accs.update(acc, bs)
+
+    return accs.avg
 
 
 def main():
@@ -188,16 +210,16 @@ def main():
     )
 
     train_dataset = load_dataset('train', max_seq_len, tokenizer, ignore_index)
+    val_dataset = load_dataset('dev', max_seq_len, tokenizer, ignore_index)
+    # test_dataset = load_dataset('test', max_seq_len, tokenizer, ignore_index)
 
     model.to(device)
 
     if mode == "train":
         print("train start")
-        train(train_dataset, model, tokenizer)
-    elif mode == "val":
-        print("validation start")
+        train(train_dataset, val_dataset, model, tokenizer)
     else:
-        print("test start")
+        print("test not implemented")
 
 if __name__ == '__main__' :
     main()
