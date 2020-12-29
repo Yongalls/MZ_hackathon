@@ -24,7 +24,7 @@ MODEL_CLASSES = {
 }
 
 # constatns
-num_labels = 784
+num_labels = 785
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 model_dir = root + '/experiments'
 exp_name = 'bert_base'
@@ -149,7 +149,7 @@ def train(train_dataset, val_dataset, model, tokenizer):
             pred_numpy = output.data.cpu().numpy()
             pred_numpy = np.argmax(pred_numpy, axis=1)
             label_numpy = labels.data.cpu().numpy()
-            acc = np.sum(pred_numpy == label_numpy) / bs
+            acc = np.sum(pred_numpy == label_numpy) / bs * 100
 
             # AverageMeter update
             losses.update(loss.data.cpu(), bs)
@@ -171,14 +171,14 @@ def train(train_dataset, val_dataset, model, tokenizer):
 
                 # Log metrics
                 if logging_steps > 0 and global_step % logging_steps == 0:
-                    print("Traininng epoch {}, step {}, loss ({}/{}), accuracy ({}/{})". format(epoch, global_step, losses.val, losses.avg, accs.val, accs.avg))
+                    print("Traininng epoch {}, step {}, loss ({:.4f}/{:.4f}), accuracy ({:.3f}/{:.3f})". format(epoch, global_step, losses.val, losses.avg, accs.val, accs.avg))
                     # Only evaluate when single GPU otherwise metrics may not average well
                 if evaluate_during_training and validation_steps > 0 and global_step % validation_steps == 0:
                     result = validate(val_dataset, model, tokenizer)
-                    print("Validation epoch {}, step {}, accuracy {}".format(epoch, global_step, result))
+                    print("Validation epoch {}, step {}, accuracy {:.3f}".format(epoch, global_step, result))
                     if result > best:
                         save_model(exp_name, model, optimizer, scheduler, epoch, global_step, result)
-                        print('model saved with accuracy {}'.format(result))
+                        print('model saved with accuracy {:.3f}'.format(result))
                         best = result
 
 
@@ -210,7 +210,7 @@ def validate(val_dataset, model, tokenizer):
             pred_numpy = output.data.cpu().numpy()
             pred_numpy = np.argmax(pred_numpy, axis=1)
             label_numpy = labels.data.cpu().numpy()
-            acc = np.sum(pred_numpy == label_numpy) / bs
+            acc = np.sum(pred_numpy == label_numpy) / bs * 100
 
         accs.update(acc, bs)
 
