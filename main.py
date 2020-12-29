@@ -24,7 +24,10 @@ MODEL_CLASSES = {
 }
 
 # constatns
-num_labels = 784 #785
+num_labels = 784
+root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
+model_dir = root + '/experiments'
+exp_name = 'bert_base'
 
 # global config (args)
 device = torch.device('cuda')
@@ -56,6 +59,34 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+def make_folder(path) :
+    try :
+        os.mkdir(os.path.join(path))
+    except :
+        pass
+
+def save_model(model_name, model, optimizer, scheduler, epoch, step, acc):
+    make_folder(model_dir)
+    state = {
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict(),
+        'scheduler': scheduler.state_dict(),
+        'epoch': epoch,
+        'step': step,
+        'best_acc': acc
+    }
+    torch.save(state, os.path.join(model_dir, model_name + '.pth'))
+
+def load_model(model_name, model, optimizer=None, scheduler=None):
+    state = torch.load(os.path.join(model_dir, model_name))
+    model.load_state_dict(state['model'])
+    if optimizer is not None:
+        optimizer.load_state_dict(state['optimizer'])
+    if scheduler is not None:
+        scheduler.load_state_dict(state['scheduler'])
+    print('model loaded')
+    return model, optimizer, scheduler, state['epoch'], state['step'], step['best_acc']
+
 
 def train(train_dataset, val_dataset, model, tokenizer):
     train_sampler = RandomSampler(train_dataset)
@@ -78,10 +109,15 @@ def train(train_dataset, val_dataset, model, tokenizer):
     )
 
     tr_loss, logging_loss = 0.0, 0.0
+    start_epoch = 0
     global_step = 0
+    best = 0.0
+
+    # model, optimizer, scheduler, start_epoch, global_step, best = load_model('bert_base.pth', model, optimizer, scheduler)
+
     model.zero_grad()
 
-    for epoch in range(num_train_epochs):
+    for epoch in range(start_epoch, num_train_epochs):
         losses = AverageMeter()
         accs = AverageMeter()
 
@@ -140,6 +176,10 @@ def train(train_dataset, val_dataset, model, tokenizer):
                 if evaluate_during_training and validation_steps > 0 and global_step % validation_steps == 0:
                     result = validate(val_dataset, model, tokenizer)
                     print("Validation epoch {}, step {}, accuracy {}".format(epoch, global_step, result))
+                    if result > best:
+                        save_model(exp_name, model, optimizer, scheduler, epoch, global_step, result)
+                        print('model saved with accuracy {}'.format(result))
+                        best = result
 
 
     return global_step, losses.avg
