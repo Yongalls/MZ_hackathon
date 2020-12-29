@@ -24,7 +24,7 @@ MODEL_CLASSES = {
 }
 
 # constatns
-num_labels = 785
+num_labels = 784
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 model_dir = root + '/experiments'
 exp_name = 'bert_base'
@@ -43,6 +43,13 @@ weight_decay = 0
 learning_rate = 1e-5
 adam_epsilon = 1e-8
 warmup_steps = 0
+
+# neptune
+import neptune
+neptune.init('lym7505/MZhack', api_token='eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5haSIsImFwaV91cmwiOiJodHRwczovL3VpLm5lcHR1bmUuYWkiLCJhcGlfa2V5IjoiZDc1ZWNkYjYtMTRiOC00ZTlhLTlmNGQtOTAzMjc2YjdlOWFlIn0=')
+neptune.create_experiment(name='MZ')
+exp_id = neptune.get_experiment()._id
+print("neptune experiment id: ", exp_id)
 
 
 class AverageMeter(object):
@@ -172,10 +179,15 @@ def train(train_dataset, val_dataset, model, tokenizer):
                 # Log metrics
                 if logging_steps > 0 and global_step % logging_steps == 0:
                     print("Traininng epoch {}, step {}, loss ({:.4f}/{:.4f}), accuracy ({:.3f}/{:.3f})". format(epoch, global_step, losses.val, losses.avg, accs.val, accs.avg))
+                    neptune.log_metric("train_loss", losses.avg)
+                    neptune.log_metric("train_acc", accs.avg)
+                    losses.reset()
+                    accs.reset()
                     # Only evaluate when single GPU otherwise metrics may not average well
                 if evaluate_during_training and validation_steps > 0 and global_step % validation_steps == 0:
                     result = validate(val_dataset, model, tokenizer)
                     print("Validation epoch {}, step {}, accuracy {:.3f}".format(epoch, global_step, result))
+                    neptune.log_metric("val_acc", result)
                     if result > best:
                         save_model(exp_name, model, optimizer, scheduler, epoch, global_step, result)
                         print('model saved with accuracy {:.3f}'.format(result))

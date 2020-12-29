@@ -34,7 +34,7 @@ class Processor(object):
 
         with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
             for line in f.readlines():
-                label = line.strip().split('\t')[0]
+                label = line.strip().split('\t')[0].split('.')[1]
                 if label not in dict_labels:
                     dict_labels[label] = class_id
                     class_id += 1
@@ -56,7 +56,7 @@ class Processor(object):
                     continue
                 i += 1
                 text = line.strip().split('\t')[1]
-                label = line.strip().split('\t')[0]
+                label = line.strip().split('\t')[0].split('.')[1]
                 label_id = self.dict_labels[label]
                 examples.append(InputExample(text=text, label=label_id))
 
