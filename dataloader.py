@@ -4,8 +4,11 @@ from torch.utils import data
 from torch.utils.data import TensorDataset
 import torchvision.transforms as transforms
 import numpy as np
+from matplotlib import pyplot as plt
 import os
 import math
+
+from transformers import BertTokenizer
 
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 
@@ -156,3 +159,75 @@ def load_dataset(mode, max_seq_len, tokenizer, ignore_index):
     dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_label_ids)
 
     return dataset
+
+if __name__ == '__main__':
+    plt.figure(figsize=(20,5))
+    train_len_tokens = []
+    val_len_tokens = []
+    label_len_tokens = []
+
+    tokenizer = BertTokenizer.from_pretrained("bert-base-multilingual-cased")
+    unk_token = tokenizer.unk_token
+    processor = Processor()
+
+    print("load train dataset")
+    examples = processor.get_examples('train')
+    for (ex_index, example) in enumerate(examples):
+        tokens = []
+        for word in example.words:
+            word_tokens = tokenizer.tokenize(word)
+            if not word_tokens:
+                word_tokens = [unk_token]  # For handling the bad-encoded word
+            tokens.extend(word_tokens)
+
+        # Account for [CLS] and [SEP]
+        special_tokens_count = 2
+        train_len_tokens.append(len(tokens) + special_tokens_count)
+
+    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(train_len_tokens), min(train_len_tokens)))
+    plt.hist(train_len_tokens, bins=range(0,40,2))
+
+    print("load val dataset")
+    examples = processor.get_examples('dev')
+    for (ex_index, example) in enumerate(examples):
+        tokens = []
+        for word in example.words:
+            word_tokens = tokenizer.tokenize(word)
+            if not word_tokens:
+                word_tokens = [unk_token]  # For handling the bad-encoded word
+            tokens.extend(word_tokens)
+
+        # Account for [CLS] and [SEP]
+        special_tokens_count = 2
+        val_len_tokens.append(len(tokens) + special_tokens_count)
+
+    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(val_len_tokens), min(val_len_tokens)))
+    plt.hist(val_len_tokens, bins=range(0,40,2))
+
+    plt.savefig(root + '/tokens_length_distribution.png')
+
+    plt.clf()
+    print("load label")
+    dict_labels = processor.dict_labels
+
+    with open(os.path.join(root, 'metainfo.txt'), 'w', encoding='utf-8') as f:
+        for (label, i) in dict_labels.items():
+            tokens = []
+            labels = label.split('-')
+            for word in labels:
+                assert len(word.split()) == 1
+                word_tokens = tokenizer.tokenize(word)
+                if not word_tokens:
+                    word_tokens = [unk_token]  # For handling the bad-encoded word
+                tokens.extend(word_tokens)
+            f.write(str(i) + ': ' + label + '\t' + ' '.join(tokens) + '\n')
+
+            # Account for [CLS] and [SEP]
+            special_tokens_count = 2
+            val_len_tokens.append(len(tokens) + special_tokens_count)
+
+
+    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(label_len_tokens), min(label_len_tokens)))
+    plt.hist(label_len_tokens, bins=range(0,40,2))
+
+    plt.savefig(root + '/label_tokens_length_distribution.png')
