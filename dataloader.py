@@ -28,11 +28,12 @@ class InputFeatures(object):
 class Processor(object):
 
     def __init__(self):
-        self.dict_labels = self.create_dict()
+        self.dict_labels, self.dict_labels_inv = self.create_dict()
         print(len(self.dict_labels))
 
     def create_dict(self):
         dict_labels = {}
+        dict_labels_inv = {}
         class_id = 0
 
         with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
@@ -40,9 +41,10 @@ class Processor(object):
                 label = line.strip().split('\t')[0].split('.')[1]
                 if label not in dict_labels:
                     dict_labels[label] = class_id
+                    dict_labels_inv[class_id] = label
                     class_id += 1
 
-        return dict_labels
+        return dict_labels, dict_labels_inv
 
     def get_examples(self, mode):
         examples = []
@@ -137,15 +139,13 @@ def convert_examples_to_features(examples, max_seq_len, tokenizer,
             InputFeatures(input_ids=input_ids,
                           attention_mask=attention_mask,
                           token_type_ids=token_type_ids,
-                          label_ids=label_ids
+                          label_ids=label_ids,
                           ))
 
     return features
 
 
-def load_dataset(mode, max_seq_len, tokenizer, ignore_index):
-    processor = Processor()
-    print(mode)
+def load_dataset(mode, processor, max_seq_len, tokenizer, ignore_index):
     examples = processor.get_examples(mode)
 
     features = convert_examples_to_features(examples, max_seq_len, tokenizer,

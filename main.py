@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
-from dataloader import load_dataset
+from dataloader import load_dataset, Processor
 
 from transformers import (
     AdamW,
@@ -26,15 +26,27 @@ MODEL_CLASSES = {
 # constatns
 num_labels = 784
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
-model_dir = root + '/experiments'
-exp_name = 'bert_base'
+model_dir = root + '/ex'
 
 # global config (args)
+mode = "test"
+if mode == 'train':
+    model_dir = root + '/experiments'
+    save_model_name = 'bert_base'
+else:
+    model_dir = root + '/path_store'
+    load_model_name = 'bert_base_3.pth'
+model_type = "bert"
+config_name = "bert-base-multilingual-cased"
+tokenizer_name = "bert-base-multilingual-cased"
+model_name = "bert-base-multilingual-cased"
+
+use_neptune = False
 device = torch.device('cuda')
 gradient_accumulation_steps = 1
 max_grad_norm = 1.0
 
-num_train_epochs = 10
+num_train_epochs = 30
 batchsize = 24
 logging_steps = 100
 validation_steps = 700
@@ -43,13 +55,15 @@ weight_decay = 0
 learning_rate = 1e-5
 adam_epsilon = 1e-8
 warmup_steps = 0
+dropout_rate = 0 # apply for classification layer
 
 # neptune
-import neptune
-neptune.init('lym7505/MZhack', api_token='eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5haSIsImFwaV91cmwiOiJodHRwczovL3VpLm5lcHR1bmUuYWkiLCJhcGlfa2V5IjoiZDc1ZWNkYjYtMTRiOC00ZTlhLTlmNGQtOTAzMjc2YjdlOWFlIn0=')
-neptune.create_experiment(name='MZ')
-exp_id = neptune.get_experiment()._id
-print("neptune experiment id: ", exp_id)
+if use_neptune:
+    import neptune
+    neptune.init('lym7505/MZhack', api_token='eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vdWkubmVwdHVuZS5haSIsImFwaV91cmwiOiJodHRwczovL3VpLm5lcHR1bmUuYWkiLCJhcGlfa2V5IjoiZDc1ZWNkYjYtMTRiOC00ZTlhLTlmNGQtOTAzMjc2YjdlOWFlIn0=')
+    neptune.create_experiment(name='MZ')
+    exp_id = neptune.get_experiment()._id
+    print("neptune experiment id: ", exp_id)
 
 
 class AverageMeter(object):
@@ -82,6 +96,7 @@ def save_model(model_name, model, optimizer, scheduler, epoch, step, acc):
         'step': step,
         'best_acc': acc
     }
+    # torch.save(state, os.path.join(model_dir, model_name + '_' + str(step) + '.pth'))
     torch.save(state, os.path.join(model_dir, model_name + '.pth'))
 
 def load_model(model_name, model, optimizer=None, scheduler=None):
@@ -92,7 +107,7 @@ def load_model(model_name, model, optimizer=None, scheduler=None):
     if scheduler is not None:
         scheduler.load_state_dict(state['scheduler'])
     print('model loaded')
-    return model, optimizer, scheduler, state['epoch'], state['step'], step['best_acc']
+    return model, optimizer, scheduler, state['epoch'], state['step'], state['best_acc']
 
 
 def train(train_dataset, val_dataset, model, tokenizer):
@@ -120,7 +135,7 @@ def train(train_dataset, val_dataset, model, tokenizer):
     global_step = 0
     best = 0.0
 
-    # model, optimizer, scheduler, start_epoch, global_step, best = load_model('bert_base.pth', model, optimizer, scheduler)
+    # model, optimizer, scheduler, start_epoch, global_step, best = load_model(load_model_name, model, optimizer, scheduler)
 
     model.zero_grad()
 
@@ -179,17 +194,19 @@ def train(train_dataset, val_dataset, model, tokenizer):
                 # Log metrics
                 if logging_steps > 0 and global_step % logging_steps == 0:
                     print("Traininng epoch {}, step {}, loss ({:.4f}/{:.4f}), accuracy ({:.3f}/{:.3f})". format(epoch, global_step, losses.val, losses.avg, accs.val, accs.avg))
-                    neptune.log_metric("train_loss", losses.avg)
-                    neptune.log_metric("train_acc", accs.avg)
+                    if use_neptune:
+                        neptune.log_metric("train_loss", losses.avg)
+                        neptune.log_metric("train_acc", accs.avg)
                     losses.reset()
                     accs.reset()
                     # Only evaluate when single GPU otherwise metrics may not average well
                 if evaluate_during_training and validation_steps > 0 and global_step % validation_steps == 0:
                     result = validate(val_dataset, model, tokenizer)
                     print("Validation epoch {}, step {}, accuracy {:.3f}".format(epoch, global_step, result))
-                    neptune.log_metric("val_acc", result)
+                    if use_neptune:
+                        neptune.log_metric("val_acc", result)
                     if result > best:
-                        save_model(exp_name, model, optimizer, scheduler, epoch, global_step, result)
+                        save_model(save_model_name, model, optimizer, scheduler, epoch, global_step, result)
                         print('model saved with accuracy {:.3f}'.format(result))
                         best = result
 
@@ -228,6 +245,45 @@ def validate(val_dataset, model, tokenizer):
 
     return accs.avg
 
+def test(val_dataset, model, tokenizer, dict_labels_inv):
+    val_sampler = SequentialSampler(val_dataset)
+    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=batchsize)
+
+    accs = AverageMeter()
+
+    model, _, _, _, total_steps, _ = load_model(load_model_name, model)
+    print(total_steps)
+
+    with open(os.path.join(root, 'result.txt'), 'w', encoding='utf-8') as f:
+        for step, batch in enumerate(val_dataloader):
+
+            model.eval()
+            batch = tuple(t.to(device) for t in batch)
+
+            with torch.no_grad():
+                inputs = {
+                    "input_ids": batch[0],
+                    "attention_mask": batch[1],
+                    "token_type_ids": batch[2]
+                }
+                labels_id = batch[3]
+                # input_tokens = batch[4]
+
+                output = model(**inputs)
+                bs = output.size(0)
+
+                pred_numpy = output.data.cpu().numpy()
+                pred_numpy = np.argmax(pred_numpy, axis=1)
+                label_numpy = labels_id.data.cpu().numpy()
+                acc = np.sum(pred_numpy == label_numpy) / bs * 100
+
+                for i in range(bs):
+                    f.write(dict_labels_inv[pred_numpy[i]] + '\t' + dict_labels_inv[label_numpy[i]] + '\n')
+
+            accs.update(acc, bs)
+
+    return accs.avg
+
 
 def main():
 
@@ -238,18 +294,10 @@ def main():
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-    # config
-    mode = "train"
-    model_type = "bert"
-
-    config_name = "bert-base-multilingual-cased"
-    tokenizer_name = "bert-base-multilingual-cased"
-    model_name = "bert-base-multilingual-cased"
 
     # hyper-parameter
     max_seq_len = 50
     ignore_index = 0
-    dropout_rate = 0.1 # apply for classification layer
 
     config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
 
@@ -261,8 +309,11 @@ def main():
         dropout_rate=dropout_rate
     )
 
-    train_dataset = load_dataset('train', max_seq_len, tokenizer, ignore_index)
-    val_dataset = load_dataset('dev', max_seq_len, tokenizer, ignore_index)
+    processor = Processor()
+    dict_labels_inv = processor.dict_labels_inv
+
+    train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
+    val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
     # test_dataset = load_dataset('test', max_seq_len, tokenizer, ignore_index)
 
     model.to(device)
@@ -271,7 +322,8 @@ def main():
         print("train start")
         train(train_dataset, val_dataset, model, tokenizer)
     else:
-        print("test not implemented")
+        print("test start")
+        test_acc = test(val_dataset, model, tokenizer, dict_labels_inv)
 
 if __name__ == '__main__' :
     main()
