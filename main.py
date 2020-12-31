@@ -26,13 +26,12 @@ MODEL_CLASSES = {
 # constatns
 num_labels = 784
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
-model_dir = root + '/ex'
 
 # global config (args)
 mode = "test"
 if mode == 'train':
     model_dir = root + '/experiments'
-    save_model_name = 'bert_base'
+    save_model_name = 'bert_base_aug'
 else:
     model_dir = root + '/path_store'
     load_model_name = 'bert_base_3.pth'
@@ -312,18 +311,18 @@ def main():
     processor = Processor()
     dict_labels_inv = processor.dict_labels_inv
 
-    train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
-    val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
-    # test_dataset = load_dataset('test', max_seq_len, tokenizer, ignore_index)
-
     model.to(device)
 
     if mode == "train":
         print("train start")
+        train_dataset = load_dataset('aug_train', processor, max_seq_len, tokenizer, ignore_index)
+        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
         train(train_dataset, val_dataset, model, tokenizer)
     else:
         print("test start")
+        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
         test_acc = test(val_dataset, model, tokenizer, dict_labels_inv)
+        print("acc: ", test_acc)
 
 if __name__ == '__main__' :
     main()
