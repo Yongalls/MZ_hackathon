@@ -3,6 +3,10 @@ import random
 
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 
+# set seed
+seed = 123
+random.seed(seed)
+
 p = 0.2
 num_data = 27904
 
