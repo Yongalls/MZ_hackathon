@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
-from dataloader import load_dataset, Processor
+from dataloader import load_dataset, load_augmented_dataset, Processor
 
 from transformers import (
     AdamW,
@@ -16,7 +16,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 
-from model import AlbertForClassification, BertForClassification
+from model import AlbertForClassification, BertForClassification, ElectraForClassification
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForClassification, BertTokenizer),
@@ -28,14 +28,14 @@ num_labels = 784
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 
 # global config (args)
-mode = "test"
+mode = "train"
 if mode == 'train':
     model_dir = root + '/experiments'
-    save_model_name = 'bert_base_aug'
+    save_model_name = 'bert_base_warmupaug'
+    # load_model_name = 'bert_base_aug3'
 else:
     model_dir = root + '/path_store'
-    load_model_name = 'bert_base_3.pth'
-
+    load_model_name = 'bert_base_4.pth'
 
 model_type = "bert"
 config_name = "bert-base-multilingual-cased"
@@ -43,10 +43,12 @@ tokenizer_name = "bert-base-multilingual-cased"
 model_name = "bert-base-multilingual-cased"
 
 use_neptune = False
+
 device = torch.device('cuda')
 gradient_accumulation_steps = 1
 max_grad_norm = 1.0
-
+max_seq_len = 50
+ignore_index = 0
 num_train_epochs = 30
 batchsize = 24
 logging_steps = 100
@@ -57,6 +59,8 @@ learning_rate = 1e-5
 adam_epsilon = 1e-8
 warmup_steps = 0
 dropout_rate = 0 # apply for classification layer
+# error_prob = 0.2 # for augmentation
+
 
 # neptune
 if use_neptune:
@@ -111,7 +115,7 @@ def load_model(model_name, model, optimizer=None, scheduler=None):
     return model, optimizer, scheduler, state['epoch'], state['step'], state['best_acc']
 
 
-def train(train_dataset, val_dataset, model, tokenizer):
+def train(train_dataset, val_dataset, model, tokenizer, processor):
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
 
@@ -143,6 +147,11 @@ def train(train_dataset, val_dataset, model, tokenizer):
     for epoch in range(start_epoch, num_train_epochs):
         losses = AverageMeter()
         accs = AverageMeter()
+
+        if epoch > 0:
+            train_dataset = load_augmented_dataset(processor, 0.03 * epoch, max_seq_len, tokenizer, ignore_index)
+            train_sampler = RandomSampler(train_dataset)
+            train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
 
         for step, batch in enumerate(train_dataloader):
 
@@ -337,7 +346,6 @@ def ensemble(val_dataset, model1, model2, model3, model4, dict_labels_inv):
     return accs.avg
 
 
-
 def main():
 
     # set seed
@@ -347,10 +355,6 @@ def main():
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-
-    # hyper-parameter
-    max_seq_len = 50
-    ignore_index = 0
 
     config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
 
@@ -369,9 +373,9 @@ def main():
 
     if mode == "train":
         print("train start")
-        train_dataset = load_dataset('aug_train', processor, max_seq_len, tokenizer, ignore_index)
+        train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
         val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
-        train(train_dataset, val_dataset, model, tokenizer)
+        train(train_dataset, val_dataset, model, tokenizer, processor)
     elif mode == 'test':
         print("test start")
         val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)

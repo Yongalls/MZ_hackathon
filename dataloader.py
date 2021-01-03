@@ -12,6 +12,13 @@ from transformers import BertTokenizer
 
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 
+# set seed
+seed = 123
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
+
 class InputExample(object):
     def __init__(self, text, label):
         self.words = text.split() # fix later
@@ -29,7 +36,9 @@ class Processor(object):
 
     def __init__(self):
         self.dict_labels, self.dict_labels_inv = self.create_dict()
-        print(len(self.dict_labels))
+        assert len(self.dict_labels) == 784
+        self.dif_words, self.num_data = self.create_vocab_change()
+        print(len(self.dif_words))
 
     def create_dict(self):
         dict_labels = {}
@@ -46,6 +55,58 @@ class Processor(object):
 
         return dict_labels, dict_labels_inv
 
+    def create_vocab_change(self):
+        lines = []
+
+        with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
+            for line in f.readlines():
+                lines.append(line.strip())
+
+        num_data = int(len(lines) / 3)
+        assert num_data == 27904
+
+        dif_words = {}
+
+        for i in range(num_data):
+            if len(lines[i].split('\t')) != 2 or len(lines[num_data + i].split('\t')) != 2 or len(lines[2 * num_data + i].split('\t')) != 2:
+                print(lines[i] + '\n')
+                continue
+            text1 = lines[i].split('\t')[1].split()
+            text2 = lines[num_data + i].split('\t')[1].split()
+            text3 = lines[2 * num_data + i].split('\t')[1].split()
+            if len(text1) != len(text2) or len(text2) != len(text3) or len(text3) != len(text1):
+                continue
+            for w in range(len(text1)):
+                if text1[w] != text2[w]:
+                    if text1[w] not in dif_words:
+                        dif_words[text1[w]] = [text2[w]]
+                    elif text2[w] not in dif_words[text1[w]]:
+                        dif_words[text1[w]].append(text2[w])
+                    if text2[w] not in dif_words:
+                        dif_words[text2[w]] = [text1[w]]
+                    elif text1[w] not in dif_words[text2[w]]:
+                        dif_words[text2[w]].append(text1[w])
+                if text2[w] != text3[w]:
+                    if text2[w] not in dif_words:
+                        dif_words[text2[w]] = [text3[w]]
+                    elif text3[w] not in dif_words[text2[w]]:
+                        dif_words[text2[w]].append(text3[w])
+                    if text3[w] not in dif_words:
+                        dif_words[text3[w]] = [text2[w]]
+                    elif text2[w] not in dif_words[text3[w]]:
+                        dif_words[text3[w]].append(text2[w])
+                if text1[w] != text3[w]:
+                    if text1[w] not in dif_words:
+                        dif_words[text1[w]] = [text3[w]]
+                    elif text3[w] not in dif_words[text1[w]]:
+                        dif_words[text1[w]].append(text3[w])
+                    if text3[w] not in dif_words:
+                        dif_words[text3[w]] = [text1[w]]
+                    elif text1[w] not in dif_words[text3[w]]:
+                        dif_words[text3[w]].append(text1[w])
+
+        return dif_words, num_data
+
     def get_examples(self, mode):
         examples = []
         file_name = mode + '.txt'
@@ -54,7 +115,7 @@ class Processor(object):
             i = 0
             for line in f.readlines():
                 # ex_id = "%s-%s" % (mode, i)
-                # if i > 10000:
+                # if i > 5000:
                 #     break
                 if len(line.strip().split('\t')) != 2:
                     print(i, line.strip(), len(line.strip().split('\t')))
@@ -64,6 +125,40 @@ class Processor(object):
                 label = line.strip().split('\t')[0].split('.')[1]
                 label_id = self.dict_labels[label]
                 examples.append(InputExample(text=text, label=label_id))
+
+        print(len(examples))
+
+        return examples
+
+    def get_augmented_examples(self, p):
+        examples = []
+        lines = []
+
+        with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
+            for line in f.readlines():
+                lines.append(line.strip())
+
+        for i in range(self.num_data):
+            label = lines[i].split('\t')[0].split('.')[1]
+            label_id = self.dict_labels[label]
+            for j in range(3):
+                if len(lines[j * self.num_data + i].split('\t')) != 2:
+                    continue
+                text = lines[j * self.num_data + i].split('\t')[1].split()
+                changed = []
+                for word in text:
+                    if word in self.dif_words.keys():
+                        r = random.uniform(0, 1)
+                        if r < p:
+                            changed.append(random.choice(self.dif_words[word]))
+                        else:
+                            changed.append(word)
+                    else:
+                        changed.append(word)
+                changed = ' '.join(changed)
+                examples.append(InputExample(text=changed, label=label_id))
+
+        print(len(examples))
 
         return examples
 
@@ -160,6 +255,21 @@ def load_dataset(mode, processor, max_seq_len, tokenizer, ignore_index):
 
     return dataset
 
+def load_augmented_dataset(processor, p, max_seq_len, tokenizer, ignore_index):
+    examples = processor.get_augmented_examples(p)
+
+    features = convert_examples_to_features(examples, max_seq_len, tokenizer,
+                                            pad_token_label_id=ignore_index)
+
+    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+    all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+    all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+    all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
+
+    dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_label_ids)
+
+    return dataset
+
 if __name__ == '__main__':
     plt.figure(figsize=(20,5))
     train_len_tokens = []
@@ -170,64 +280,76 @@ if __name__ == '__main__':
     unk_token = tokenizer.unk_token
     processor = Processor()
 
-    print("load train dataset")
-    examples = processor.get_examples('train')
-    for (ex_index, example) in enumerate(examples):
-        tokens = []
-        for word in example.words:
-            word_tokens = tokenizer.tokenize(word)
-            if not word_tokens:
-                word_tokens = [unk_token]  # For handling the bad-encoded word
-            tokens.extend(word_tokens)
 
-        # Account for [CLS] and [SEP]
-        special_tokens_count = 2
-        train_len_tokens.append(len(tokens) + special_tokens_count)
-
-    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(train_len_tokens), min(train_len_tokens)))
-    plt.hist(train_len_tokens, bins=range(0,40,2))
-
-    print("load val dataset")
-    examples = processor.get_examples('dev')
-    for (ex_index, example) in enumerate(examples):
-        tokens = []
-        for word in example.words:
-            word_tokens = tokenizer.tokenize(word)
-            if not word_tokens:
-                word_tokens = [unk_token]  # For handling the bad-encoded word
-            tokens.extend(word_tokens)
-
-        # Account for [CLS] and [SEP]
-        special_tokens_count = 2
-        val_len_tokens.append(len(tokens) + special_tokens_count)
-
-    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(val_len_tokens), min(val_len_tokens)))
-    plt.hist(val_len_tokens, bins=range(0,40,2))
-
-    plt.savefig(root + '/tokens_length_distribution.png')
-
-    plt.clf()
-    print("load label")
-    dict_labels = processor.dict_labels
-
-    with open(os.path.join(root, 'metainfo.txt'), 'w', encoding='utf-8') as f:
-        for (label, i) in dict_labels.items():
-            tokens = []
-            labels = label.split('-')
-            for word in labels:
-                assert len(word.split()) == 1
-                word_tokens = tokenizer.tokenize(word)
-                if not word_tokens:
-                    word_tokens = [unk_token]  # For handling the bad-encoded word
-                tokens.extend(word_tokens)
-            f.write(str(i) + ': ' + label + '\t' + ' '.join(tokens) + '\n')
-
-            # Account for [CLS] and [SEP]
-            special_tokens_count = 2
-            val_len_tokens.append(len(tokens) + special_tokens_count)
+    line = '모든 좌석 시트 통풍 오프.'
+    words = line.split()
+    tokens = []
+    for word in words:
+        word_tokens = tokenizer.tokenize(word)
+        if not word_tokens:
+            word_tokens = [unk_token]  # For handling the bad-encoded word
+        tokens.extend(word_tokens)
+    print(tokens)
 
 
-    print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(label_len_tokens), min(label_len_tokens)))
-    plt.hist(label_len_tokens, bins=range(0,40,2))
+    # print("load train dataset")
+    # examples = processor.get_examples('train')
+    # for (ex_index, example) in enumerate(examples):
+    #     tokens = []
+    #     for word in example.words:
+    #         word_tokens = tokenizer.tokenize(word)
+    #         if not word_tokens:
+    #             word_tokens = [unk_token]  # For handling the bad-encoded word
+    #         tokens.extend(word_tokens)
 
-    plt.savefig(root + '/label_tokens_length_distribution.png')
+    #     # Account for [CLS] and [SEP]
+    #     special_tokens_count = 2
+    #     train_len_tokens.append(len(tokens) + special_tokens_count)
+
+    # print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(train_len_tokens), min(train_len_tokens)))
+    # plt.hist(train_len_tokens, bins=range(0,40,2))
+
+    # print("load val dataset")
+    # examples = processor.get_examples('dev')
+    # for (ex_index, example) in enumerate(examples):
+    #     tokens = []
+    #     for word in example.words:
+    #         word_tokens = tokenizer.tokenize(word)
+    #         if not word_tokens:
+    #             word_tokens = [unk_token]  # For handling the bad-encoded word
+    #         tokens.extend(word_tokens)
+
+    #     # Account for [CLS] and [SEP]
+    #     special_tokens_count = 2
+    #     val_len_tokens.append(len(tokens) + special_tokens_count)
+
+    # print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(val_len_tokens), min(val_len_tokens)))
+    # plt.hist(val_len_tokens, bins=range(0,40,2))
+
+    # plt.savefig(root + '/tokens_length_distribution.png')
+
+    # plt.clf()
+    # print("load label")
+    # dict_labels = processor.dict_labels
+
+    # with open(os.path.join(root, 'metainfo.txt'), 'w', encoding='utf-8') as f:
+    #     for (label, i) in dict_labels.items():
+    #         tokens = []
+    #         labels = label.split('-')
+    #         for word in labels:
+    #             assert len(word.split()) == 1
+    #             word_tokens = tokenizer.tokenize(word)
+    #             if not word_tokens:
+    #                 word_tokens = [unk_token]  # For handling the bad-encoded word
+    #             tokens.extend(word_tokens)
+    #         f.write(str(i) + ': ' + label + '\t' + ' '.join(tokens) + '\n')
+
+    #         # Account for [CLS] and [SEP]
+    #         special_tokens_count = 2
+    #         val_len_tokens.append(len(tokens) + special_tokens_count)
+
+
+    # print("Maximum length of tokens: {}, Minimum length of tokens: {}". format(max(label_len_tokens), min(label_len_tokens)))
+    # plt.hist(label_len_tokens, bins=range(0,40,2))
+
+    # plt.savefig(root + '/label_tokens_length_distribution.png')
