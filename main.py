@@ -35,6 +35,8 @@ if mode == 'train':
 else:
     model_dir = root + '/path_store'
     load_model_name = 'bert_base_3.pth'
+
+
 model_type = "bert"
 config_name = "bert-base-multilingual-cased"
 tokenizer_name = "bert-base-multilingual-cased"
@@ -284,6 +286,58 @@ def test(val_dataset, model, tokenizer, dict_labels_inv):
     return accs.avg
 
 
+def ensemble(val_dataset, model1, model2, model3, model4, dict_labels_inv):
+    val_sampler = SequentialSampler(val_dataset)
+    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=batchsize)
+
+    accs = AverageMeter()
+
+    model1, _, _, _, _, acc1 = load_model('bert_base_3.pth', model1)
+    model2, _, _, _, _, acc2 = load_model('bert_base_4.pth', model2)
+    model3, _, _, _, _, acc3 = load_model('bert_base_12.pth', model3)
+    # model4, _, _, _, _, acc4 = load_model('bert_base_15.pth', model4)
+    # model1, _, _, _, _, acc1 = load_model('bert_base_3.pth', model1)
+
+    print(acc1, acc2, acc3)
+
+    with open(os.path.join(root, 'result.txt'), 'w', encoding='utf-8') as f:
+        for step, batch in enumerate(val_dataloader):
+
+            model1.eval()
+            model2.eval()
+            model3.eval()
+            # model4.eval()
+            batch = tuple(t.to(device) for t in batch)
+
+            with torch.no_grad():
+                inputs = {
+                    "input_ids": batch[0],
+                    "attention_mask": batch[1],
+                    "token_type_ids": batch[2]
+                }
+                labels_id = batch[3]
+                # input_tokens = batch[4]
+
+                output1 = model1(**inputs)
+                output2 = model2(**inputs)
+                output3 = model3(**inputs)
+                # output4 = model4(**inputs)
+                bs = output1.size(0)
+
+                pred_numpy = output1.data.cpu().numpy() + output2.data.cpu().numpy() + output3.data.cpu().numpy()# + output4.data.cpu().numpy()
+                pred_numpy = np.argmax(pred_numpy, axis=1)
+                label_numpy = labels_id.data.cpu().numpy()
+                acc = np.sum(pred_numpy == label_numpy) / bs * 100
+
+                for i in range(bs):
+                    f.write(dict_labels_inv[pred_numpy[i]] + '\t' + dict_labels_inv[label_numpy[i]] + '\n')
+
+            accs.update(acc, bs)
+
+    return accs.avg
+
+
+
 def main():
 
     # set seed
@@ -318,10 +372,22 @@ def main():
         train_dataset = load_dataset('aug_train', processor, max_seq_len, tokenizer, ignore_index)
         val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
         train(train_dataset, val_dataset, model, tokenizer)
-    else:
+    elif mode == 'test':
         print("test start")
         val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
         test_acc = test(val_dataset, model, tokenizer, dict_labels_inv)
+        print("acc: ", test_acc)
+    else:
+        print("ensemble test start")
+        model1 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
+        model2 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
+        model3 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
+        model1.to(device)
+        model2.to(device)
+        model3.to(device)
+
+        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
+        test_acc = ensemble(val_dataset, model, model1, model2, model3, dict_labels_inv)
         print("acc: ", test_acc)
 
 if __name__ == '__main__' :
