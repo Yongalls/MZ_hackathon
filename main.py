@@ -16,7 +16,7 @@ from transformers import (
     get_linear_schedule_with_warmup,
 )
 
-from model import AlbertForClassification, BertForClassification, ElectraForClassification
+from model import AlbertForClassification, BertForClassification
 
 MODEL_CLASSES = {
     "bert": (BertConfig, BertForClassification, BertTokenizer),
