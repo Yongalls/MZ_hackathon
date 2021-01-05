@@ -5,6 +5,21 @@
 + torch==1.7.0
 + transformers==4.1.1
 
+## Data preparation
+
+Your directory tree should be look like this:
+```
+$ROOT
+|--model
+|--train.py
+|--predict.py
+|--dataloader.py
+|--train.txt
+|--dev.txt
+|--test.txt
+
+```
+
 ## Training
 
 ```
