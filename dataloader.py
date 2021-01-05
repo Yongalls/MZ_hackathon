@@ -35,25 +35,72 @@ class InputFeatures(object):
 class Processor(object):
 
     def __init__(self):
-        self.dict_labels, self.dict_labels_inv = self.create_dict()
-        assert len(self.dict_labels) == 784
+        self.dict_labels, self.dict_labels_inv, black = self.create_dict()
+        values = self.dict_labels.values()
+        values = set(values)
+        print("num of train data related duplicated labels: ", sum(black.values()))
+        print(len(values))
+        print(len(self.dict_labels), len(self.dict_labels_inv))
+        assert len(self.dict_labels) == 785
+        assert len(self.dict_labels_inv) == 774
+        assert len(values) == 774
         self.dif_words, self.num_data = self.create_vocab_change()
         print(len(self.dif_words))
 
     def create_dict(self):
-        dict_labels = {}
-        dict_labels_inv = {}
-        class_id = 0
+        dict_labels = {
+            "8.IoT-ON/OFF-공기청정기끄기": 0, "7.IoT-ON/OFF-공기청정기끔": 0,
+            "7.IoT-ON/OFF-공기청정기작동": 1, "8.IoT-ON/OFF-공기청정기켜기": 1,
+            "7.IoT-ON/OFF-TV켜기": 2, "8.IoT-ON/OFF-티브이켜기": 2,
+            "7.IoT-Modechange-에너지절약모드실행": 3, "7.IoT-Modechange-에너지절약모드전환": 3,
+            "6.반복일상-기상-블라인드내리기": 4, "6.반복일상-기상-블라인드닫기": 4,
+            "6.반복일상-기상-블라인드열기": 5, "6.반복일상-기상-블라인드올리기": 5,
+            "5.차량제어-공조제어-에어컨끄기": 6, "2.공조제어-차량에어컨-에어컨끄기": 6,
+            "5.차량제어-공조제어-에어컨켜기": 7, "2.공조제어-차량에어컨-에어컨켜기": 7,
+            "5.차량제어-공조제어-히터끄기": 8, "2.공조제어-차량히터-히터끄기": 8,
+            "5.차량제어-공조제어-히터켜기": 9, "2.공조제어-차량히터-히터켜기": 9,
+            "2.의료-주차정산-주차비정산": 10, "5.의료-주차정산-주차비정산": 10
+        }
+        black = {
+            "8.IoT-ON/OFF-공기청정기끄기": 0, "7.IoT-ON/OFF-공기청정기끔": 0,
+            "7.IoT-ON/OFF-공기청정기작동": 0, "8.IoT-ON/OFF-공기청정기켜기": 0,
+            "7.IoT-ON/OFF-TV켜기": 0, "8.IoT-ON/OFF-티브이켜기": 0,
+            "7.IoT-Modechange-에너지절약모드실행": 0, "7.IoT-Modechange-에너지절약모드전환": 0,
+            "6.반복일상-기상-블라인드내리기": 0, "6.반복일상-기상-블라인드닫기": 0,
+            "6.반복일상-기상-블라인드열기": 0, "6.반복일상-기상-블라인드올리기": 0,
+            "5.차량제어-공조제어-에어컨끄기": 0, "2.공조제어-차량에어컨-에어컨끄기": 0,
+            "5.차량제어-공조제어-에어컨켜기": 0, "2.공조제어-차량에어컨-에어컨켜기": 0,
+            "5.차량제어-공조제어-히터끄기": 0, "2.공조제어-차량히터-히터끄기": 0,
+            "5.차량제어-공조제어-히터켜기": 0, "2.공조제어-차량히터-히터켜기": 0,
+            "2.의료-주차정산-주차비정산": 0, "5.의료-주차정산-주차비정산": 0
+        }
+        dict_labels_inv = {
+            0: "8.IoT-ON/OFF-공기청정기끄기",
+            1: "7.IoT-ON/OFF-공기청정기작동",
+            2: "7.IoT-ON/OFF-TV켜기",
+            3: "7.IoT-Modechange-에너지절약모드실행",
+            4: "6.반복일상-기상-블라인드내리기",
+            5: "6.반복일상-기상-블라인드열기",
+            6: "5.차량제어-공조제어-에어컨끄기",
+            7: "5.차량제어-공조제어-에어컨켜기",
+            8: "5.차량제어-공조제어-히터끄기",
+            9: "5.차량제어-공조제어-히터켜기",
+            10: "2.의료-주차정산-주차비정산"
+        }
+
+        class_id = 11
 
         with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
             for line in f.readlines():
-                label = line.strip().split('\t')[0].split('.')[1]
+                label = line.strip().split('\t')[0]
+                if label in black:
+                    black[label] += 1
                 if label not in dict_labels:
                     dict_labels[label] = class_id
                     dict_labels_inv[class_id] = label
                     class_id += 1
 
-        return dict_labels, dict_labels_inv
+        return dict_labels, dict_labels_inv, black
 
     def create_vocab_change(self):
         lines = []
@@ -122,7 +169,7 @@ class Processor(object):
                     continue
                 i += 1
                 text = line.strip().split('\t')[1]
-                label = line.strip().split('\t')[0].split('.')[1]
+                label = line.strip().split('\t')[0]
                 label_id = self.dict_labels[label]
                 examples.append(InputExample(text=text, label=label_id))
 
@@ -139,7 +186,7 @@ class Processor(object):
                 lines.append(line.strip())
 
         for i in range(self.num_data):
-            label = lines[i].split('\t')[0].split('.')[1]
+            label = lines[i].split('\t')[0]
             label_id = self.dict_labels[label]
             for j in range(3):
                 if len(lines[j * self.num_data + i].split('\t')) != 2:
@@ -256,9 +303,14 @@ def load_dataset(mode, processor, max_seq_len, tokenizer, ignore_index):
     return dataset
 
 def load_augmented_dataset(processor, p, max_seq_len, tokenizer, ignore_index):
-    examples = processor.get_augmented_examples(p)
+    total_examples = []
+    for ep in p:
+        examples = processor.get_augmented_examples(ep)
+        total_examples.extend(examples)
 
-    features = convert_examples_to_features(examples, max_seq_len, tokenizer,
+    print("total exampels num: ", len(total_examples))
+
+    features = convert_examples_to_features(total_examples, max_seq_len, tokenizer,
                                             pad_token_label_id=ignore_index)
 
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)

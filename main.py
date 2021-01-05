@@ -1,4 +1,5 @@
 import os
+import argparse
 import random
 import numpy as np
 import torch
@@ -24,15 +25,15 @@ MODEL_CLASSES = {
 }
 
 # constatns
-num_labels = 784
+num_labels = 774
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
 
 # global config (args)
 mode = "train"
 if mode == 'train':
     model_dir = root + '/experiments'
-    save_model_name = 'bert_base_warmupaug'
-    # load_model_name = 'bert_base_aug3'
+    save_model_name = 'bert_base_774_augx2'
+    load_model_name = 'bert_base_774_augx2.pth'
 else:
     model_dir = root + '/path_store'
     load_model_name = 'bert_base_4.pth'
@@ -115,7 +116,7 @@ def load_model(model_name, model, optimizer=None, scheduler=None):
     return model, optimizer, scheduler, state['epoch'], state['step'], state['best_acc']
 
 
-def train(train_dataset, val_dataset, model, tokenizer, processor):
+def train(args, train_dataset, val_dataset, model, tokenizer, processor):
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
 
@@ -140,7 +141,7 @@ def train(train_dataset, val_dataset, model, tokenizer, processor):
     global_step = 0
     best = 0.0
 
-    # model, optimizer, scheduler, start_epoch, global_step, best = load_model(load_model_name, model, optimizer, scheduler)
+    model, optimizer, scheduler, start_epoch, global_step, best = load_model(load_model_name, model, optimizer, scheduler)
 
     model.zero_grad()
 
@@ -148,7 +149,8 @@ def train(train_dataset, val_dataset, model, tokenizer, processor):
         losses = AverageMeter()
         accs = AverageMeter()
 
-        if epoch > 0:
+        if args.do_augment_per_epoch and epoch > 0:
+            error_prob = [0, 0.03 * epoch]
             train_dataset = load_augmented_dataset(processor, 0.03 * epoch, max_seq_len, tokenizer, ignore_index)
             train_sampler = RandomSampler(train_dataset)
             train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
@@ -346,7 +348,7 @@ def ensemble(val_dataset, model1, model2, model3, model4, dict_labels_inv):
     return accs.avg
 
 
-def main():
+def main(args):
 
     # set seed
     seed = 123
@@ -354,7 +356,6 @@ def main():
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
 
     config_class, model_class, tokenizer_class = MODEL_CLASSES[model_type]
 
@@ -373,9 +374,22 @@ def main():
 
     if mode == "train":
         print("train start")
-        train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
-        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
-        train(train_dataset, val_dataset, model, tokenizer, processor)
+        if args.task == 'baseline':
+            train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
+            val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
+
+        elif args.task == 'augmented':
+            error_prob = args.error_p.split('_')
+            error_prob = list(map(float, error_prob))
+            print(error_prob)
+            train_dataset = load_augmented_dataset(processor, error_prob, max_seq_len, tokenizer, ignore_index)
+            val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
+
+        else:
+            raise Exception('wrong task')
+
+        train(args, train_dataset, val_dataset, model, tokenizer, processor)
+
     elif mode == 'test':
         print("test start")
         val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
@@ -395,4 +409,14 @@ def main():
         print("acc: ", test_acc)
 
 if __name__ == '__main__' :
-    main()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--task", default=None, required=True, type=str, help="The name of the task to train")
+    parser.add_argument("--error_p", default="0.2_0.2", type=str, help="The list of error probability for augmentation")
+    parser.add_argument("--do_augment_per_epoch", default=False, type=bool, help="whether to augment data per epoch")
+    parser.add_argument("--error_p_scheduling", default="linear", type=str, help="The error probability scheduling algorithm for augmentation")
+
+
+    args = parser.parse_args()
+
+    main(args)
