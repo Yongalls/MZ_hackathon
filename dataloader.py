@@ -20,7 +20,7 @@ torch.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)
 
 class InputExample(object):
-    def __init__(self, text, label):
+    def __init__(self, text, label=None):
         self.words = text.split() # fix later
         self.label = label
 
@@ -35,19 +35,51 @@ class InputFeatures(object):
 class Processor(object):
 
     def __init__(self):
-        self.dict_labels, self.dict_labels_inv, black = self.create_dict()
-        values = self.dict_labels.values()
-        values = set(values)
-        print("num of train data related duplicated labels: ", sum(black.values()))
-        print(len(values))
-        print(len(self.dict_labels), len(self.dict_labels_inv))
-        assert len(self.dict_labels) == 785
-        assert len(self.dict_labels_inv) == 774
-        assert len(values) == 774
+        self.dict_labels_785, self.dict_labels_inv_785 = self.create_dict_785()
+        self.dict_labels_784, self.dict_labels_inv_784 = self.create_dict_784()
+        self.dict_labels_774, self.dict_labels_inv_774 = self.create_dict_774()
+
+        assert len(self.dict_labels_785) == 785 and len(self.dict_labels_inv_785) == 785
+        assert len(self.dict_labels_784) == 784 and len(self.dict_labels_inv_784) == 784
+        assert len(self.dict_labels_774) == 785 and len(self.dict_labels_inv_774) == 774
+
         self.dif_words, self.num_data = self.create_vocab_change()
         print(len(self.dif_words))
 
-    def create_dict(self):
+    def create_dict_785(self):
+        dict_labels = {}
+        dict_labels_inv = {}
+        class_id = 0
+
+        with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
+            for line in f.readlines():
+                label = line.strip().split('\t')[0]
+                if label not in dict_labels:
+                    dict_labels[label] = class_id
+                    dict_labels_inv[class_id] = label
+                    class_id += 1
+
+        return dict_labels, dict_labels_inv
+
+    def create_dict_784(self):
+        dict_labels = {}
+        dict_labels_inv = {}
+        class_id = 0
+
+        with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
+            for line in f.readlines():
+                label = line.strip().split('\t')[0].split('.')[1]
+                if label not in dict_labels:
+                    dict_labels[label] = class_id
+                    if label == "의료-주차정산-주차비정산":
+                        dict_labels_inv[class_id] = "5.의료-주차정산-주차비정산"
+                    else:
+                        dict_labels_inv[class_id] = line.strip().split('\t')[0]
+                    class_id += 1
+
+        return dict_labels, dict_labels_inv
+
+    def create_dict_774(self):
         dict_labels = {
             "8.IoT-ON/OFF-공기청정기끄기": 0, "7.IoT-ON/OFF-공기청정기끔": 0,
             "7.IoT-ON/OFF-공기청정기작동": 1, "8.IoT-ON/OFF-공기청정기켜기": 1,
@@ -61,19 +93,7 @@ class Processor(object):
             "5.차량제어-공조제어-히터켜기": 9, "2.공조제어-차량히터-히터켜기": 9,
             "2.의료-주차정산-주차비정산": 10, "5.의료-주차정산-주차비정산": 10
         }
-        black = {
-            "8.IoT-ON/OFF-공기청정기끄기": 0, "7.IoT-ON/OFF-공기청정기끔": 0,
-            "7.IoT-ON/OFF-공기청정기작동": 0, "8.IoT-ON/OFF-공기청정기켜기": 0,
-            "7.IoT-ON/OFF-TV켜기": 0, "8.IoT-ON/OFF-티브이켜기": 0,
-            "7.IoT-Modechange-에너지절약모드실행": 0, "7.IoT-Modechange-에너지절약모드전환": 0,
-            "6.반복일상-기상-블라인드내리기": 0, "6.반복일상-기상-블라인드닫기": 0,
-            "6.반복일상-기상-블라인드열기": 0, "6.반복일상-기상-블라인드올리기": 0,
-            "5.차량제어-공조제어-에어컨끄기": 0, "2.공조제어-차량에어컨-에어컨끄기": 0,
-            "5.차량제어-공조제어-에어컨켜기": 0, "2.공조제어-차량에어컨-에어컨켜기": 0,
-            "5.차량제어-공조제어-히터끄기": 0, "2.공조제어-차량히터-히터끄기": 0,
-            "5.차량제어-공조제어-히터켜기": 0, "2.공조제어-차량히터-히터켜기": 0,
-            "2.의료-주차정산-주차비정산": 0, "5.의료-주차정산-주차비정산": 0
-        }
+
         dict_labels_inv = {
             0: "8.IoT-ON/OFF-공기청정기끄기",
             1: "7.IoT-ON/OFF-공기청정기작동",
@@ -93,14 +113,12 @@ class Processor(object):
         with open(os.path.join(root, 'train.txt'), 'r', encoding='utf-8') as f:
             for line in f.readlines():
                 label = line.strip().split('\t')[0]
-                if label in black:
-                    black[label] += 1
                 if label not in dict_labels:
                     dict_labels[label] = class_id
                     dict_labels_inv[class_id] = label
                     class_id += 1
 
-        return dict_labels, dict_labels_inv, black
+        return dict_labels, dict_labels_inv
 
     def create_vocab_change(self):
         lines = []
@@ -154,30 +172,36 @@ class Processor(object):
 
         return dif_words, num_data
 
-    def get_examples(self, mode):
+    def get_examples(self, mode, file_name, num_labels):
         examples = []
-        file_name = mode + '.txt'
 
         with open(os.path.join(root, file_name), 'r', encoding='utf-8') as f:
-            i = 0
-            for line in f.readlines():
-                # ex_id = "%s-%s" % (mode, i)
-                # if i > 5000:
-                #     break
-                if len(line.strip().split('\t')) != 2:
-                    print(i, line.strip(), len(line.strip().split('\t')))
-                    continue
-                i += 1
-                text = line.strip().split('\t')[1]
-                label = line.strip().split('\t')[0]
-                label_id = self.dict_labels[label]
-                examples.append(InputExample(text=text, label=label_id))
+            if mode == 'train':
+                for line in f.readlines():
+                    if len(line.strip().split('\t')) != 2:
+                        print(line.strip(), len(line.strip().split('\t')))
+                        continue
+                    text = line.strip().split('\t')[1]
+                    if num_labels == 785:
+                        label = line.strip().split('\t')[0]
+                        label_id = self.dict_labels_785[label]
+                    elif num_labels == 784:
+                        label = line.strip().split('\t')[0].split('.')[1]
+                        label_id = self.dict_labels_784[label]
+                    elif num_labels == 774:
+                        label = line.strip().split('\t')[0]
+                        label_id = self.dict_labels_774[label]
+                    examples.append(InputExample(text=text, label=label_id))
+            elif mode == 'test':
+                for line in f.readlines():
+                    text = line.strip()
+                    examples.append(InputExample(text=text, label=None))
 
         print(len(examples))
 
         return examples
 
-    def get_augmented_examples(self, p):
+    def get_augmented_examples(self, num_labels, p):
         examples = []
         lines = []
 
@@ -186,8 +210,15 @@ class Processor(object):
                 lines.append(line.strip())
 
         for i in range(self.num_data):
-            label = lines[i].split('\t')[0]
-            label_id = self.dict_labels[label]
+            if num_labels == 785:
+                label = lines[i].strip().split('\t')[0]
+                label_id = self.dict_labels_785[label]
+            elif num_labels == 784:
+                label = lines[i].strip().split('\t')[0].split('.')[1]
+                label_id = self.dict_labels_784[label]
+            elif num_labels == 774:
+                label = lines[i].strip().split('\t')[0]
+                label_id = self.dict_labels_774[label]
             for j in range(3):
                 if len(lines[j * self.num_data + i].split('\t')) != 2:
                     continue
@@ -270,12 +301,11 @@ def convert_examples_to_features(examples, max_seq_len, tokenizer,
 
         if ex_index < 5:
             print("*** Example ***")
-            # print("guid: %s" % example.guid)
             print("tokens: %s" % " ".join([str(x) for x in tokens]))
             print("input_ids: %s" % " ".join([str(x) for x in input_ids]))
             print("attention_mask: %s" % " ".join([str(x) for x in attention_mask]))
             print("token_type_ids: %s" % " ".join([str(x) for x in token_type_ids]))
-            print("intent_label: %d" % (label_ids))
+            # print("intent_label: %d" % (label_ids))
 
         features.append(
             InputFeatures(input_ids=input_ids,
@@ -287,8 +317,8 @@ def convert_examples_to_features(examples, max_seq_len, tokenizer,
     return features
 
 
-def load_dataset(mode, processor, max_seq_len, tokenizer, ignore_index):
-    examples = processor.get_examples(mode)
+def load_dataset(mode, filename, num_labels, processor, max_seq_len, tokenizer, ignore_index):
+    examples = processor.get_examples(mode, filename, num_labels)
 
     features = convert_examples_to_features(examples, max_seq_len, tokenizer,
                                             pad_token_label_id=ignore_index)
@@ -296,16 +326,21 @@ def load_dataset(mode, processor, max_seq_len, tokenizer, ignore_index):
     all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
     all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
     all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+
+    if mode == 'test':
+        dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids)
+        return dataset
+
     all_label_ids = torch.tensor([f.label_ids for f in features], dtype=torch.long)
 
     dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_label_ids)
 
     return dataset
 
-def load_augmented_dataset(processor, p, max_seq_len, tokenizer, ignore_index):
+def load_augmented_dataset(num_labels, processor, p, max_seq_len, tokenizer, ignore_index):
     total_examples = []
     for ep in p:
-        examples = processor.get_augmented_examples(ep)
+        examples = processor.get_augmented_examples(num_labels, ep)
         total_examples.extend(examples)
 
     print("total exampels num: ", len(total_examples))

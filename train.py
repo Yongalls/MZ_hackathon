@@ -24,26 +24,18 @@ MODEL_CLASSES = {
     "albert": (AlbertConfig, AlbertForClassification, AlbertTokenizer),
 }
 
-# constatns
-num_labels = 774
+# paths
 root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
+model_dir = root + '/experiments'
 
-# global config (args)
-mode = "train"
-if mode == 'train':
-    model_dir = root + '/experiments'
-    save_model_name = 'bert_base_774_augx2'
-    load_model_name = 'bert_base_774_augx2.pth'
-else:
-    model_dir = root + '/path_store'
-    load_model_name = 'bert_base_4.pth'
+# load_model_name = 'bert_base_774_augx2.pth'
 
 model_type = "bert"
 config_name = "bert-base-multilingual-cased"
 tokenizer_name = "bert-base-multilingual-cased"
 model_name = "bert-base-multilingual-cased"
 
-use_neptune = False
+use_neptune = True
 
 device = torch.device('cuda')
 gradient_accumulation_steps = 1
@@ -141,7 +133,7 @@ def train(args, train_dataset, val_dataset, model, tokenizer, processor):
     global_step = 0
     best = 0.0
 
-    model, optimizer, scheduler, start_epoch, global_step, best = load_model(load_model_name, model, optimizer, scheduler)
+    # model, optimizer, scheduler, start_epoch, global_step, best = load_model(load_model_name, model, optimizer, scheduler)
 
     model.zero_grad()
 
@@ -150,8 +142,14 @@ def train(args, train_dataset, val_dataset, model, tokenizer, processor):
         accs = AverageMeter()
 
         if args.do_augment_per_epoch and epoch > 0:
-            error_prob = [0, 0.03 * epoch]
-            train_dataset = load_augmented_dataset(processor, 0.03 * epoch, max_seq_len, tokenizer, ignore_index)
+            if args.error_p_scheduling == 'aug1':
+                error_prob = [0.2]
+            elif args.error_p_scheduling == 'aug2':
+                error_prob = [0.03 * epoch]
+            elif args.error_p_scheduling == 'aug3':
+                error_prob = [0, 0.2]
+
+            train_dataset = load_augmented_dataset(args.num_labels, processor, error_prob, max_seq_len, tokenizer, ignore_index)
             train_sampler = RandomSampler(train_dataset)
             train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=batchsize)
 
@@ -167,18 +165,11 @@ def train(args, train_dataset, val_dataset, model, tokenizer, processor):
             }
             labels = batch[3]
 
-            # if args.model_type in ["xlm", "roberta", "distilbert"]:
-            #     del inputs["token_type_ids"]
-            #
-            # if args.model_type in ["xlnet", "xlm"]:
-            #     inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-            #     if args.version_2_with_negative:
-            #         inputs.update({"is_impossible": batch[7]})
 
             output = model(**inputs)
             bs = output.size(0)
             loss_fct = nn.CrossEntropyLoss()
-            loss = loss_fct(output.view(-1, num_labels), labels.view(-1))
+            loss = loss_fct(output.view(-1, args.num_labels), labels.view(-1))
 
             pred_numpy = output.data.cpu().numpy()
             pred_numpy = np.argmax(pred_numpy, axis=1)
@@ -218,7 +209,7 @@ def train(args, train_dataset, val_dataset, model, tokenizer, processor):
                     if use_neptune:
                         neptune.log_metric("val_acc", result)
                     if result > best:
-                        save_model(save_model_name, model, optimizer, scheduler, epoch, global_step, result)
+                        save_model(args.save_model_name, model, optimizer, scheduler, epoch, global_step, result)
                         print('model saved with accuracy {:.3f}'.format(result))
                         best = result
 
@@ -257,95 +248,6 @@ def validate(val_dataset, model, tokenizer):
 
     return accs.avg
 
-def test(val_dataset, model, tokenizer, dict_labels_inv):
-    val_sampler = SequentialSampler(val_dataset)
-    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=batchsize)
-
-    accs = AverageMeter()
-
-    model, _, _, _, total_steps, _ = load_model(load_model_name, model)
-    print(total_steps)
-
-    with open(os.path.join(root, 'result.txt'), 'w', encoding='utf-8') as f:
-        for step, batch in enumerate(val_dataloader):
-
-            model.eval()
-            batch = tuple(t.to(device) for t in batch)
-
-            with torch.no_grad():
-                inputs = {
-                    "input_ids": batch[0],
-                    "attention_mask": batch[1],
-                    "token_type_ids": batch[2]
-                }
-                labels_id = batch[3]
-                # input_tokens = batch[4]
-
-                output = model(**inputs)
-                bs = output.size(0)
-
-                pred_numpy = output.data.cpu().numpy()
-                pred_numpy = np.argmax(pred_numpy, axis=1)
-                label_numpy = labels_id.data.cpu().numpy()
-                acc = np.sum(pred_numpy == label_numpy) / bs * 100
-
-                for i in range(bs):
-                    f.write(dict_labels_inv[pred_numpy[i]] + '\t' + dict_labels_inv[label_numpy[i]] + '\n')
-
-            accs.update(acc, bs)
-
-    return accs.avg
-
-
-def ensemble(val_dataset, model1, model2, model3, model4, dict_labels_inv):
-    val_sampler = SequentialSampler(val_dataset)
-    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=batchsize)
-
-    accs = AverageMeter()
-
-    model1, _, _, _, _, acc1 = load_model('bert_base_3.pth', model1)
-    model2, _, _, _, _, acc2 = load_model('bert_base_4.pth', model2)
-    model3, _, _, _, _, acc3 = load_model('bert_base_12.pth', model3)
-    # model4, _, _, _, _, acc4 = load_model('bert_base_15.pth', model4)
-    # model1, _, _, _, _, acc1 = load_model('bert_base_3.pth', model1)
-
-    print(acc1, acc2, acc3)
-
-    with open(os.path.join(root, 'result.txt'), 'w', encoding='utf-8') as f:
-        for step, batch in enumerate(val_dataloader):
-
-            model1.eval()
-            model2.eval()
-            model3.eval()
-            # model4.eval()
-            batch = tuple(t.to(device) for t in batch)
-
-            with torch.no_grad():
-                inputs = {
-                    "input_ids": batch[0],
-                    "attention_mask": batch[1],
-                    "token_type_ids": batch[2]
-                }
-                labels_id = batch[3]
-                # input_tokens = batch[4]
-
-                output1 = model1(**inputs)
-                output2 = model2(**inputs)
-                output3 = model3(**inputs)
-                # output4 = model4(**inputs)
-                bs = output1.size(0)
-
-                pred_numpy = output1.data.cpu().numpy() + output2.data.cpu().numpy() + output3.data.cpu().numpy()# + output4.data.cpu().numpy()
-                pred_numpy = np.argmax(pred_numpy, axis=1)
-                label_numpy = labels_id.data.cpu().numpy()
-                acc = np.sum(pred_numpy == label_numpy) / bs * 100
-
-                for i in range(bs):
-                    f.write(dict_labels_inv[pred_numpy[i]] + '\t' + dict_labels_inv[label_numpy[i]] + '\n')
-
-            accs.update(acc, bs)
-
-    return accs.avg
 
 
 def main(args):
@@ -363,58 +265,41 @@ def main(args):
     tokenizer = tokenizer_class.from_pretrained(tokenizer_name)
     model = model_class.from_pretrained(model_name,
         config=config,
-        num_labels=num_labels,
+        num_labels=args.num_labels,
         dropout_rate=dropout_rate
     )
 
     processor = Processor()
-    dict_labels_inv = processor.dict_labels_inv
 
     model.to(device)
 
-    if mode == "train":
-        print("train start")
-        if args.task == 'baseline':
-            train_dataset = load_dataset('train', processor, max_seq_len, tokenizer, ignore_index)
-            val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
+    print("train start")
+    if args.task == 'baseline':
+        train_dataset = load_dataset('train', 'train.txt', args.num_labels, processor, max_seq_len, tokenizer, ignore_index)
+        val_dataset = load_dataset('train', 'dev.txt', args.num_labels, processor, max_seq_len, tokenizer, ignore_index)
 
-        elif args.task == 'augmented':
-            error_prob = args.error_p.split('_')
-            error_prob = list(map(float, error_prob))
-            print(error_prob)
-            train_dataset = load_augmented_dataset(processor, error_prob, max_seq_len, tokenizer, ignore_index)
-            val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
+    elif args.task == 'augmented':
+        error_prob = args.error_p.split('_')
+        error_prob = list(map(float, error_prob))
+        print(error_prob)
+        train_dataset = load_augmented_dataset(args.num_labels, processor, error_prob, max_seq_len, tokenizer, ignore_index)
+        val_dataset = load_dataset('train', 'dev.txt', args.num_labels, processor, max_seq_len, tokenizer, ignore_index)
 
-        else:
-            raise Exception('wrong task')
-
-        train(args, train_dataset, val_dataset, model, tokenizer, processor)
-
-    elif mode == 'test':
-        print("test start")
-        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
-        test_acc = test(val_dataset, model, tokenizer, dict_labels_inv)
-        print("acc: ", test_acc)
     else:
-        print("ensemble test start")
-        model1 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
-        model2 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
-        model3 = model_class.from_pretrained(model_name, config=config, num_labels=num_labels, dropout_rate=dropout_rate)
-        model1.to(device)
-        model2.to(device)
-        model3.to(device)
+        raise Exception('wrong task')
 
-        val_dataset = load_dataset('dev', processor, max_seq_len, tokenizer, ignore_index)
-        test_acc = ensemble(val_dataset, model, model1, model2, model3, dict_labels_inv)
-        print("acc: ", test_acc)
+    train(args, train_dataset, val_dataset, model, tokenizer, processor)
+
 
 if __name__ == '__main__' :
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--task", default=None, required=True, type=str, help="The name of the task to train")
+    parser.add_argument("--num_labels", default=None, required=True, type=int, help="The number of labels")
+    parser.add_argument("--save_model_name", default=None, required=True, type=str, help="The model path name to save")
     parser.add_argument("--error_p", default="0.2_0.2", type=str, help="The list of error probability for augmentation")
     parser.add_argument("--do_augment_per_epoch", default=False, type=bool, help="whether to augment data per epoch")
-    parser.add_argument("--error_p_scheduling", default="linear", type=str, help="The error probability scheduling algorithm for augmentation")
+    parser.add_argument("--error_p_scheduling", default="aug1", type=str, help="The error probability scheduling algorithm for augmentation")
 
 
     args = parser.parse_args()
