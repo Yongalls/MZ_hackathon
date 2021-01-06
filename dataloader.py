@@ -10,7 +10,7 @@ import math
 
 from transformers import BertTokenizer
 
-root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
+root = "./"
 
 # set seed
 seed = 123

@@ -25,7 +25,7 @@ MODEL_CLASSES = {
 }
 
 # paths
-root = "/content/drive/MyDrive/Colab Notebooks/MZ_hackathon"
+root = "./"
 model_dir = root + '/experiments'
 
 # load_model_name = 'bert_base_774_augx2.pth'
