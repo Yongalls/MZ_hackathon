@@ -11,6 +11,19 @@ Your directory tree should be look like this:
 ```
 $ROOT
 |--model
+|--experiments
+|   | (Your model will be saved here)
+|   | (for training)
+|--path_store
+|   | (You should move trained model to this directory.)
+|   | (for testing)
+|   |--bert_base_3.pth
+|   |--bert_base_4.pth
+|   |--bert_base_12.pth
+|   |--bert_base_15.pth
+|   |--bert_base_17.pth
+|   |--bert_base_18.pth
+|   |--bert_base_19.pth
 |--train.py
 |--predict.py
 |--dataloader.py
