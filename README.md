@@ -82,7 +82,22 @@ Although the original dataset has a significant problem, the test dataset includ
 
 ### Ensemble
 
-6 networks trained by the fixed dataset are used for Soft Voting Ensemble. A model trained by the original dataset is exploited when predicting overlapped labels. 
+6 networks trained by the fixed dataset are used for Soft Voting Ensemble. A model trained by the original dataset is exploited when predicting overlapped labels. Also we found 10 additional pairs of labels that have same meaning. To prevent meaningless loss of accuracy, we merged these 10 pairs of labels.
+
+|  |  |
+|--|--|
+|8.IoT-ON/OFF-공기청정기끄기| 7.IoT-ON/OFF-공기청정기끔|
+|7.IoT-ON/OFF-공기청정기작동| 8.IoT-ON/OFF-공기청정기켜기|
+|7.IoT-ON/OFF-TV켜기| 8.IoT-ON/OFF-티브이켜기|
+|7.IoT-Modechange-에너지절약모드실행| 7.IoT-Modechange-에너지절약모드전환|
+|6.반복일상-기상-블라인드내리기| 6.반복일상-기상-블라인드닫기|
+|6.반복일상-기상-블라인드열기| 6.반복일상-기상-블라인드올리기|
+|5.차량제어-공조제어-에어컨끄기| 2.공조제어-차량에어컨-에어컨끄기|
+|5.차량제어-공조제어-에어컨켜기| 2.공조제어-차량에어컨-에어컨켜기|
+|5.차량제어-공조제어-히터끄기| 2.공조제어-차량히터-히터끄기|
+|5.차량제어-공조제어-히터켜기| 2.공조제어-차량히터-히터켜기|
+|2.의료-주차정산-주차비정산| 5.의료-주차정산-주차비정산|
+
 We gained 3.403% additional accuracy compared to single baseline model with original dataset.
 
 | |original|excluding 1 label|excluding 11 labels|
