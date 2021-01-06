@@ -29,6 +29,7 @@ $ROOT
 |--dataloader.py
 |--train.txt
 |--dev.txt
+|--devtest.txt
 |--test.txt
 
 ```
@@ -48,9 +49,15 @@ $ python3 train.py --task baseline --num_labels 785 --save_model_name bert_base_
 
 ## Prediction
 
+Test with validation dataset (`dev.txt`)
+```
+$ python3 predict.py --dataset devtest
+```
+Test with test dataset (`test.txt`)
 ```
 $ python3 predict.py --dataset test
 ```
+
 
 ## Results
 
