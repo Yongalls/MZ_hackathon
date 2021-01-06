@@ -7,6 +7,11 @@
 
 ## Data preparation
 
+Pull Docker image
+```
+docker pull parkkibaek/mz_hack_1:latest
+```
+
 Your directory tree should be look like this:
 ```
 $ROOT
