@@ -35,7 +35,7 @@ config_name = "bert-base-multilingual-cased"
 tokenizer_name = "bert-base-multilingual-cased"
 model_name = "bert-base-multilingual-cased"
 
-use_neptune = True
+use_neptune = False
 
 device = torch.device('cuda')
 gradient_accumulation_steps = 1
